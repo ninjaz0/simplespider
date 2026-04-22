@@ -56,22 +56,14 @@ def scrape_taobao_data(keyword="A4复印纸", max_items=100):
         driver.get("https://www.taobao.com/")
         
         # 2. 引导用户手动扫码登录
-        print(">>> 【重要提示】请在弹出的浏览器中点击登录，并使用手机淘宝扫码！")
-        print(">>> 扫码完成后，程序会自动检测并继续，您有60秒时间...")
+        print(">>> 【重要提示】由于淘宝安全机制，搜索结果可能被登录弹窗拦截。")
+        print(">>> 请在弹出的浏览器中，手动扫码登录。")
         
-        # 等待直到页面出现搜索框和搜索按钮（表示登录成功进入了首页，或者本身就是在首页）
-        # 淘宝扫码后通常会刷新页面。我们直接强制导航到搜索页，如果未登录会被重定向到登录页。
         search_url = f"https://s.taobao.com/search?q={keyword}"
         driver.get(search_url)
         
-        # 循环检测是否在登录页面，如果是，则等待用户扫码
-        wait_time = 60
-        start_wait = time.time()
-        while "login.taobao.com" in driver.current_url:
-            if time.time() - start_wait > wait_time:
-                raise Exception("登录超时！请重新运行脚本并及时扫码。")
-            print("等待扫码中...")
-            time.sleep(2)
+        # 使用最稳妥的手动确认方式
+        input(">>> [等待操作] 请在浏览器中完成扫码登录，并在看到【A4复印纸的商品列表】后，在此处按【回车键】继续...")
             
         print(">>> 登录成功！开始抓取商品信息...")
         
@@ -97,29 +89,66 @@ def scrape_taobao_data(keyword="A4复印纸", max_items=100):
         print(f"当前页面共发现 {len(items)} 个商品卡片，正在解析...")
         
         count = 0
+        import re
         for item in items:
             if count >= max_items:
                 break
             try:
-                # 尝试获取价格
-                price_elements = item.find_elements(By.XPATH, ".//span[contains(@class, 'priceInt--') or contains(@class, 'price-')]")
-                if not price_elements:
+                # 淘宝页面元素class被严重混淆，我们直接提取卡片的全部文本，然后基于文本特征智能解析
+                card_text = item.text
+                if not card_text:
                     continue
-                price_text = price_elements[0].text.strip()
+                    
+                text_lines = [line.strip() for line in card_text.split('\n') if line.strip()]
+                if len(text_lines) < 3:
+                    continue
+                    
+                price_text = ""
+                title = ""
+                shop = ""
+                
+                for i, line in enumerate(text_lines):
+                    # 识别价格
+                    if '¥' in line or '￥' in line:
+                        if line.strip() in ['¥', '￥']:
+                            if i + 1 < len(text_lines):
+                                price_text = text_lines[i+1]
+                        else:
+                            price_text = line.replace('¥', '').replace('￥', '').strip()
+                            
+                    # 识别标题 (包含关键词且较长)
+                    if len(line) >= 8 and ('A4' in line.upper() or '纸' in line or '复印' in line or '打印' in line):
+                        title = line
+                        
+                    # 识别店铺
+                    if line.endswith('店') or '专营' in line or '办公' in line or line.endswith('部'):
+                        shop = line
+                        
+                # 极端后备方案：如果文本没分好行
                 if not price_text:
+                    prices = re.findall(r'[¥￥]\s*(\d+\.?\d*)', card_text)
+                    if prices:
+                        price_text = prices[0]
+                        
+                if not price_text:
+                    continue  # 没有价格的卡片通常是广告位或占位符，直接跳过
+                    
+                if not title:
+                    title = text_lines[0] if len(text_lines) > 0 else "未知名称"
+                    
+                if not shop:
+                    shop = text_lines[-1] if len(text_lines) > 0 else "未知店铺"
+
+                # 二次清洗提取出的价格（只保留数字）
+                nums = re.findall(r'\d+\.?\d*', price_text)
+                if nums:
+                    price_val = nums[0]
+                else:
                     continue
-                
-                # 尝试获取标题
-                title_elements = item.find_elements(By.XPATH, ".//div[contains(@class, 'title--') or contains(@class, 'title')]")
-                title = title_elements[0].text.strip() if title_elements else "未知名称"
-                
-                # 尝试获取店铺
-                shop_elements = item.find_elements(By.XPATH, ".//a[contains(@class, 'shopName--') or contains(@class, 'shop-')]")
-                shop = shop_elements[0].text.strip() if shop_elements else "未知店铺"
                 
                 # 获取简单的品牌/型号推断
                 brand = "未知品牌"
-                for b in ["得力", "晨光", "齐心", "天章", "亚太", "百旺"]:
+                for b in ["得力", "晨光", "齐心", "天章", "亚太", "百旺", "纸老虎", "玛丽"]:
                     if b in title:
                         brand = b
                         break
@@ -127,13 +156,13 @@ def scrape_taobao_data(keyword="A4复印纸", max_items=100):
                 scraped_data.append({
                     "商品ID": f"A4_TB_{random.randint(10000, 99999)}",
                     "日期": datetime.now().strftime("%Y-%m-%d"),
-                    "真实平台价格": price_text,
+                    "真实平台价格": price_val,
                     "品牌": brand,
                     "型号": "70g" if "70g" in title.lower() or "70克" in title else "80g",
                     "商品来源网站": "淘宝网",
                     "商品来源店铺": shop,
                     "数据获取时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "商品原标题": title # 附带原标题便于后续分析
+                    "商品原标题": title
                 })
                 count += 1
                 
