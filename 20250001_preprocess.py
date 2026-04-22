@@ -32,10 +32,10 @@ def clean_and_preprocess(input_file="raw_scraped_data.csv", output_file="2025000
         df['真实平台价格'] = df['真实平台价格'].astype(float)
         
     # 3. 处理异常值：价格为0或极高的视为异常
-    # 假设正常的A4 70g一箱（5包）价格在 50 到 200 之间
-    abnormal_mask = (df['真实平台价格'] < 50) | (df['真实平台价格'] > 200)
+    # 假设正常的A4 70g一箱（5包）价格在 10 到 200 之间
+    abnormal_mask = (df['真实平台价格'] < 10) | (df['真实平台价格'] > 200)
     abnormal_count = abnormal_mask.sum()
-    print(f"发现异常价格数据(低于50或高于200): {abnormal_count} 条，正在过滤...")
+    print(f"发现异常价格数据(低于10或高于200): {abnormal_count} 条，正在过滤...")
     df = df[~abnormal_mask]
     
     # 4. 时间格式标准化
